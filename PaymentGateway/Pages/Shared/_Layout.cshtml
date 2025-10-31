@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - Silvius Pay</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="~/css/site.css" />
+</head>
+<body>
+    <header class="topbar">
+        <div class="container">
+            <h1>Silvius Pay</h1>
+            <span class="tagline">Intermediação USDT &lt;-&gt; Real via Solana</span>
+        </div>
+    </header>
+    <main role="main" class="container">
+        @RenderBody()
+    </main>
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; @DateTime.UtcNow.Year - Silvius Pay</p>
+        </div>
+    </footer>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.4/cdn.min.js" integrity="sha512-" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="~/js/wallet.js"></script>
+    @RenderSection("Scripts", required: false)
+</body>
+</html>
