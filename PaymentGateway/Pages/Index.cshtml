@@ -1,0 +1,131 @@
+@page
+@model PaymentGateway.Pages.IndexModel
+@{
+    ViewData["Title"] = "Painel";
+}
+
+<section class="panel" x-data="{ direction: 'UsdtToBrl' }">
+    <div class="wallet-status">
+        <div>
+            <h2>Fluxo de pagamento cripto &rarr; real</h2>
+            <p>Conecte sua carteira Phantom ou MetaMask para iniciar uma troca instantânea.</p>
+        </div>
+        <div class="wallet-actions">
+            <button class="primary" id="connectWallet">Conectar carteira</button>
+            <small id="walletAddress" class="muted">Carteira não conectada</small>
+        </div>
+    </div>
+
+    <form id="paymentForm" method="post" asp-page-handler="Create" data-quote-url="?handler=Quote">
+        @Html.AntiForgeryToken()
+        <div class="form-grid">
+            <div class="field">
+                <label for="Direction">Tipo de pagamento</label>
+                <select id="Direction" name="Input.Direction" x-model="direction">
+                    <option value="UsdtToBrl">Receber em real (USDT &rarr; BRL)</option>
+                    <option value="BrlToUsdt">Enviar USDT (BRL &rarr; USDT)</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="UsdtAmount" x-text="direction === 'UsdtToBrl' ? 'Valor em USDT (informe)' : 'Valor estimado em USDT'"></label>
+                <input type="number" step="0.01" id="UsdtAmount" name="Input.UsdtAmount" placeholder="0.00" x-bind:readonly="direction === 'BrlToUsdt'" />
+            </div>
+            <div class="field">
+                <label for="FiatAmount" x-text="direction === 'BrlToUsdt' ? 'Valor em Real (informe)' : 'Valor estimado em Real'"></label>
+                <input type="number" step="0.01" id="FiatAmount" name="Input.FiatAmount" placeholder="0.00" x-bind:readonly="direction === 'UsdtToBrl'" />
+            </div>
+            <div class="field">
+                <label for="ServiceFee">Taxa de serviço (3,5%)</label>
+                <input type="number" id="ServiceFee" name="Input.ServiceFee" readonly />
+            </div>
+            <div class="field">
+                <label for="NetworkFee">Taxa fixa de rede</label>
+                <input type="number" id="NetworkFee" name="Input.NetworkFee" readonly />
+            </div>
+            <div class="field">
+                <label for="ExchangeRate">Cotação FoxBit (simulada)</label>
+                <input type="number" id="ExchangeRate" name="Input.ExchangeRate" readonly />
+            </div>
+            <div class="field">
+                <label for="DestinationBankAccount">Conta bancária destino</label>
+                <input type="text" id="DestinationBankAccount" name="Input.DestinationBankAccount" placeholder="Banco, agência, conta" />
+            </div>
+        </div>
+        <input type="hidden" id="WalletAddress" name="Input.WalletAddress" />
+        <div class="actions" style="margin-top: 1.5rem; display:flex; justify-content:flex-end;">
+            <button type="submit" class="primary">Gerar pagamento</button>
+        </div>
+    </form>
+
+    <div class="info" style="margin-top:1.5rem; color: var(--muted);">
+        <p>
+            Após a conexão com a carteira, aguardaremos a confirmação da transação de USDT na rede Solana.
+            Assim que a transação for validada, executaremos o pagamento em reais junto ao banco parceiro
+            (integração pendente) e disponibilizaremos o comprovante digital.
+        </p>
+    </div>
+</section>
+
+<section class="panel" style="margin-top:2rem;">
+    <h2>Transações realizadas</h2>
+    <p>Monitore o status e baixe o comprovante após a liquidação completa.</p>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Sentido</th>
+                    <th>USDT</th>
+                    <th>BRL</th>
+                    <th>Serviço</th>
+                    <th>Rede</th>
+                    <th>Status</th>
+                    <th>Comprovante</th>
+                </tr>
+            </thead>
+            <tbody id="transactionsBody">
+            @if (Model.RecentTransactions.Any())
+            {
+                foreach (var tx in Model.RecentTransactions)
+                {
+                    var statusClass = tx.Status switch
+                    {
+                        PaymentGateway.Models.TransactionStatus.Completed => "completed",
+                        PaymentGateway.Models.TransactionStatus.Failed => "failed",
+                        _ => "pending"
+                    };
+                    <tr>
+                        <td>@tx.CreatedAt.ToLocalTime().ToString("g")</td>
+                        <td>@(tx.Direction == PaymentGateway.Models.PaymentDirection.UsdtToBrl ? "USDT → BRL" : "BRL → USDT")</td>
+                        <td>@tx.RequestedAmountUsdt.ToString("F2")</td>
+                        <td>R$ @tx.RequestedAmountFiat.ToString("F2")</td>
+                        <td>@tx.ServiceFeeFiat.ToString("F2")</td>
+                        <td>@tx.NetworkFee.ToString("F2")</td>
+                        <td><span class="status-chip @statusClass">@tx.Status</span></td>
+                        <td>
+                            @if (tx.Receipt != null)
+                            {
+                                <a class="link-icon" href="/api/transactions/@tx.Id/receipt" title="Baixar comprovante"><i class="fa-solid fa-file-arrow-down"></i></a>
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+            else
+            {
+                <tr><td colspan="8">Conecte sua carteira para ver o histórico.</td></tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@section Scripts {
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('paymentPage', () => ({
+                direction: 'UsdtToBrl'
+            }));
+        });
+    </script>
+}
