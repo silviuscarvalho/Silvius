@@ -1,82 +1,68 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PaymentGateway.Models;
 
-namespace PaymentGateway.Services.Background;
-
-public class UsdtSettlementBackgroundService : BackgroundService
+namespace PaymentGateway.Services.Background
 {
-    private readonly TransactionProcessingQueue _queue;
-    private readonly ISolanaTransactionService _solanaService;
-    private readonly IBankPaymentService _bankPaymentService;
-    private readonly ITransactionRepository _repository;
-    private readonly IReceiptGenerator _receiptGenerator;
-    private readonly ILogger<UsdtSettlementBackgroundService> _logger;
-
-    public UsdtSettlementBackgroundService(TransactionProcessingQueue queue,
-        ISolanaTransactionService solanaService,
-        IBankPaymentService bankPaymentService,
-        ITransactionRepository repository,
-        IReceiptGenerator receiptGenerator,
-        ILogger<UsdtSettlementBackgroundService> logger)
+    /// <summary>
+    /// Periodically triggers settlement of pending USDT transactions.
+    /// </summary>
+    public sealed class UsdtSettlementBackgroundService : BackgroundService
     {
-        _queue = queue;
-        _solanaService = solanaService;
-        _bankPaymentService = bankPaymentService;
-        _repository = repository;
-        _receiptGenerator = receiptGenerator;
-        _logger = logger;
-    }
+        private static readonly TimeSpan DefaultDelay = TimeSpan.FromSeconds(5);
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        var pending = await _repository.GetPendingSettlementAsync(stoppingToken);
-        foreach (var transaction in pending)
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly ILogger<UsdtSettlementBackgroundService> _logger;
+        private readonly TimeSpan _pollingDelay;
+
+        public UsdtSettlementBackgroundService(
+            IServiceScopeFactory serviceScopeFactory,
+            ILogger<UsdtSettlementBackgroundService> logger)
+            : this(serviceScopeFactory, logger, DefaultDelay)
         {
-            await SafeHandleAsync(transaction, stoppingToken);
         }
 
-        await foreach (var transaction in _queue.ReadAllAsync(stoppingToken))
+        public UsdtSettlementBackgroundService(
+            IServiceScopeFactory serviceScopeFactory,
+            ILogger<UsdtSettlementBackgroundService> logger,
+            TimeSpan pollingDelay)
         {
-            await SafeHandleAsync(transaction, stoppingToken);
+            _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _pollingDelay = pollingDelay;
         }
-    }
 
-    private async Task SafeHandleAsync(PaymentTransaction transaction, CancellationToken stoppingToken)
-    {
-        try
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            await HandleTransactionAsync(transaction, stoppingToken);
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    using var scope = _serviceScopeFactory.CreateScope();
+                    var repository = scope.ServiceProvider.GetRequiredService<ITransactionRepository>();
+                    await repository.SettlePendingTransactionsAsync(stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    // Swallow cancellation exceptions triggered by the runtime when the host is shutting down.
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "An error occurred while settling USDT transactions.");
+                }
+
+                try
+                {
+                    await Task.Delay(_pollingDelay, stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Erro ao processar transação {TransactionId}", transaction.Id);
-            transaction.Status = TransactionStatus.Failed;
-            await _repository.UpdateAsync(transaction, stoppingToken);
-        }
-    }
-
-    private async Task HandleTransactionAsync(PaymentTransaction transaction, CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Processando fila para transação {TransactionId}", transaction.Id);
-        transaction.Status = TransactionStatus.AwaitingWalletSettlement;
-        await _repository.UpdateAsync(transaction, cancellationToken);
-
-        await _solanaService.WaitForConfirmationAsync(transaction, cancellationToken);
-
-        transaction.Status = TransactionStatus.AwaitingFiatPayment;
-        await _repository.UpdateAsync(transaction, cancellationToken);
-
-        await _bankPaymentService.ExecuteFiatPaymentAsync(transaction, cancellationToken);
-
-        transaction.Status = TransactionStatus.AwaitingFiatSettlement;
-        await _repository.UpdateAsync(transaction, cancellationToken);
-
-        transaction.Receipt = _receiptGenerator.Generate(transaction);
-        transaction.Status = TransactionStatus.Completed;
-        transaction.CompletedAt = DateTime.UtcNow;
-
-        await _repository.UpdateAsync(transaction, cancellationToken);
-        _logger.LogInformation("Transação {TransactionId} concluída", transaction.Id);
     }
 }

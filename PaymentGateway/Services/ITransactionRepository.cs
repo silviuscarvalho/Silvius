@@ -1,12 +1,17 @@
-using PaymentGateway.Models;
+using System.Threading;
+using System.Threading.Tasks;
 
-namespace PaymentGateway.Services;
-
-public interface ITransactionRepository
+namespace PaymentGateway.Services
 {
-    Task CreateAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default);
-    Task UpdateAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default);
-    Task<PaymentTransaction?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<PaymentTransaction>> GetByWalletAsync(string walletAddress, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<PaymentTransaction>> GetPendingSettlementAsync(CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Abstraction for persisting and settling transactions that are awaiting USDT payout.
+    /// </summary>
+    public interface ITransactionRepository
+    {
+        /// <summary>
+        /// Performs whatever logic is required to settle pending USDT transactions.
+        /// </summary>
+        /// <param name="cancellationToken">Token used to observe cancellation requests.</param>
+        Task SettlePendingTransactionsAsync(CancellationToken cancellationToken);
+    }
 }
